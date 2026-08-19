@@ -1,22 +1,19 @@
 <?php
 /**
  * Notification service.
- * - SMS sent via raw cURL to Africa's Talking REST API (no SDK/Composer
- *   dependency needed for this part).
- * - Email sent via PHPMailer, which DOES need Composer:
- *       composer require phpmailer/phpmailer
- *   If vendor/autoload.php is missing, or NOTIFY_DRY_RUN is true in
- *   config.php, nothing is actually sent - it's just logged into the
- *   notifications table with status 'pending', so the rest of the
- *   system (and your demo) still works.
+ * - SMS sent via raw cURL to Africa's Talking REST API.
+ * - Email sent via a dependency-free raw SMTP client (includes/smtp_mailer.php)
+ *   -- no Composer/PHPMailer/SSH required, so it works on any shared host.
+ * If NOTIFY_DRY_RUN is true in config.php, nothing is actually sent - it's just logged into the notifications table with status 'pending', so the rest of the system still works.
  */
+require_once __DIR__ . '/smtp_mailer.php';
 
 function send_sms($phone, $message) {
     if (NOTIFY_DRY_RUN) {
         return ['success' => false, 'info' => 'dry_run'];
     }
 
-    // Africa's Talking expects phone numbers in international format, e.g. 2547XXXXXXXX
+    // Africa's Talking expects phone numbers in international format
     $phone = preg_replace('/^0/', '254', $phone);
 
     $url = (AT_USERNAME === 'sandbox')
@@ -56,33 +53,7 @@ function send_email_notification($toEmail, $toName, $subject, $bodyHtml) {
         return ['success' => false, 'info' => 'dry_run'];
     }
 
-    $autoload = __DIR__ . '/../vendor/autoload.php';
-    if (!file_exists($autoload)) {
-        return ['success' => false, 'info' => 'PHPMailer not installed (run: composer require phpmailer/phpmailer)'];
-    }
-    require_once $autoload;
-
-    $mail = new PHPMailer\PHPMailer\PHPMailer(true);
-    try {
-        $mail->isSMTP();
-        $mail->Host       = SMTP_HOST;
-        $mail->SMTPAuth   = true;
-        $mail->Username   = SMTP_USERNAME;
-        $mail->Password   = SMTP_PASSWORD;
-        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = SMTP_PORT;
-
-        $mail->setFrom(SMTP_FROM_EMAIL, SMTP_FROM_NAME);
-        $mail->addAddress($toEmail, $toName);
-        $mail->isHTML(true);
-        $mail->Subject = $subject;
-        $mail->Body    = $bodyHtml;
-
-        $mail->send();
-        return ['success' => true, 'info' => 'sent'];
-    } catch (Exception $e) {
-        return ['success' => false, 'info' => $mail->ErrorInfo];
-    }
+    return smtp_send_mail($toEmail, $toName, $subject, $bodyHtml);
 }
 
 /**
